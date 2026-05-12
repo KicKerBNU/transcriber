@@ -1,10 +1,44 @@
-# Vue 3 Scaffold
+# Transcriber
 
-A production-ready Vue 3 scaffold built with Domain-Driven Design (DDD), designed to scale cleanly as the application grows. Each feature lives in its own self-contained module with clearly separated layers for API calls, TypeScript contracts, and state management.
+A real-time AI-powered conversation app built with Vue 3 and Domain-Driven Design.
 
-## Objective
+Transcriber captures your conversations through the microphone — or all audio in the room via a native macOS agent — and transcribes every word live. In agent mode, speakers are automatically identified and color-coded. When the session ends, an AI summary is generated and the full transcript is saved to your personal history.
 
-Provide a solid starting point for Vue 3 projects that enforces a consistent, modular architecture from day one — avoiding the flat component soup that most scaffolds encourage.
+> **Speak. Understand. Remember.**
+
+---
+
+## What it does
+
+| Capability | Details |
+|---|---|
+| Live transcription | Mic-only (Web Speech API) or multi-speaker via AssemblyAI |
+| Speaker diarization | Native agent captures system + mic audio; AssemblyAI identifies each speaker |
+| Real-time AI responses | Every utterance is streamed to GPT-4o for live contextual replies |
+| Auto-summary | Session end triggers an OpenAI summarization saved with the transcript |
+| Conversation history | Past sessions stored per user in Firestore, accessible from the dashboard |
+| Auth | Google OAuth + email/password via Firebase Auth |
+| Localization | 5 languages — English, Portuguese, French, Italian, Spanish |
+
+---
+
+## How it works
+
+```
+Mic only mode
+  Browser mic → Web Speech API → transcript → GPT-4o stream → summary → Firestore
+
+Agent mode (multi-speaker)
+  Mic + system audio
+       ↓
+  Python agent (macOS) ──PCM──► Web app ──PCM──► AssemblyAI (speaker diarization)
+                                                        ↓
+                                              transcript per speaker
+                                                        ↓
+                                             GPT-4o stream → summary → Firestore
+```
+
+---
 
 ## Tech Stack
 
@@ -18,92 +52,116 @@ Provide a solid starting point for Vue 3 projects that enforces a consistent, mo
 | [Tailwind CSS](https://tailwindcss.com/) | ^4.0 | Utility-first styling via `@tailwindcss/vite` |
 | [vue-i18n](https://vue-i18n.intlify.dev/) | ^11.0 | Internationalization — auto-detects browser language |
 | [FontAwesome](https://fontawesome.com/) | ^7.0 | Icons — registered globally as `<FontAwesomeIcon>` |
+| [Firebase](https://firebase.google.com/) | ^12.0 | Auth + Firestore (lite SDK) |
+| [OpenAI SDK](https://platform.openai.com/) | ^6.0 | Streaming completions + summarization (GPT-4o) |
+| [AssemblyAI](https://www.assemblyai.com/) | Streaming v3 | Real-time diarized transcription in agent mode |
 | [Storybook](https://storybook.js.org/) | ^10.0 | Isolated component development and visual testing |
+
+**Native agent** (macOS only): Python 3.12 + `sounddevice` + `websockets` — captures system audio and mic, streams 16 kHz PCM over a local WebSocket.
+
+---
+
+## Getting Started
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure environment variables
+
+```bash
+cp .env.example .env.local
+```
+
+Fill in `.env.local`:
+
+```bash
+VITE_OPENAI_API_KEY=sk-...
+VITE_ASSEMBLYAI_API_KEY=...        # required for multi-speaker mode
+
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+```
+
+### 3. Start the dev server
+
+```bash
+npm run dev        # http://localhost:3798
+```
+
+### 4. (Optional) Start the native agent for multi-speaker mode
+
+```bash
+npm run agent      # ws://localhost:8765
+```
+
+The first run creates a Python virtual environment and installs dependencies automatically. Requires Python 3.11+.
+
+For system audio capture (to hear other people in the room), install [BlackHole](https://github.com/ExistentialAudio/BlackHole) and set it as your Mac's system audio output before starting the agent.
+
+---
+
+## Available Commands
+
+```bash
+npm run dev              # Dev server at http://localhost:3798
+npm run agent            # Native audio agent at ws://localhost:8765
+npm run build            # Type-check + production build
+npm run preview          # Preview production build locally
+npm run storybook        # Storybook at http://localhost:6006
+npm run build-storybook  # Build static Storybook
+npm run format           # Prettier format src/
+```
+
+---
 
 ## Folder Structure
 
 ```
 src/
 ├── modules/                  # Feature modules (DDD)
-│   └── <feature>/
-│       ├── api/              # HTTP requests for this feature
-│       ├── domain/           # TypeScript interfaces and types
-│       ├── store/            # Pinia store
-│       ├── <feature>.routes.ts
-│       └── <feature>.vue
+│   ├── auth/                 # Login — Firebase Auth
+│   ├── dashboard/            # Conversation history — Firestore
+│   └── session/              # Live session — transcription + AI
+│       ├── api/              # Firestore save
+│       ├── domain/           # session.types.ts
+│       ├── store/            # session.store.ts (Pinia)
+│       └── session.vue
 ├── i18n/
 │   ├── index.ts              # createI18n — auto-detects browser locale
-│   └── locales/
-│       ├── en-US.ts
-│       ├── pt-BR.ts
-│       ├── fr-FR.ts
-│       ├── it-IT.ts
-│       └── es-ES.ts
+│   └── locales/              # en-US, pt-BR, fr-FR, it-IT, es-ES
 ├── plugins/
-│   └── fontawesome.ts        # FA library setup + global component registration
+│   ├── firebase.ts           # Firebase app, auth, db, googleProvider
+│   └── fontawesome.ts        # FA library setup + global component
 ├── router/
-│   └── index.ts              # Global router — spreads routes from each module
-├── assets/
-│   └── styles/
-│       └── main.css          # Tailwind entry point
-├── App.vue                   # Root — only contains <RouterView />
-└── main.ts                   # Bootstrap — registers Pinia, Router, i18n, FA
+│   └── index.ts              # Spreads module routes + auth guard
+├── assets/styles/
+│   └── main.css              # Tailwind entry point
+├── App.vue                   # Root — only <RouterView />
+└── main.ts                   # Bootstrap — Pinia, Router, i18n, FA
+
+agent/                        # Native macOS audio agent (Python)
+├── main.py                   # WebSocket server
+├── capture.py                # Mic + system audio capture with resampling
+├── mixer.py                  # PCM additive mix with clipping protection
+├── requirements.txt
+└── start.sh                  # Bootstraps venv and starts the agent
+
+docs/
+├── constitution/             # Stable product decisions
+│   ├── MISSION.md
+│   ├── TECH-STACK.md
+│   └── ROADMAP.md
+└── specs/                    # One spec per feature, tracks lifecycle
+    ├── 01-auth.md            ✅ done
+    ├── 02-dashboard.md       ✅ done
+    ├── 03-audio-session.md   ✅ done
+    ├── 04-native-agent.md    ✅ done
+    └── 05-multi-speaker-session.md  🔄 in-progress
 ```
-
-## Key Conventions
-
-**Modules**
-- No `components/` at the `src` root — every component belongs to a feature module
-- Each module declares its own routes in `<feature>.routes.ts`; the global router spreads them all
-- TypeScript contracts (interfaces, types) live in the module's `domain/` folder
-
-**State**
-- Pinia stores use the Setup Store style (`defineStore` with `ref` / `computed`)
-
-**Internationalization**
-- The app detects the browser's preferred language automatically via `navigator.languages`
-- Exact match is tried first (`pt-BR`), then language prefix (`fr` → `fr-FR`), then fallback to `en-US`
-- All UI text goes through `useI18n` — no hardcoded strings in templates
-- Translation keys are namespaced by feature: `home.features.vite.title`
-
-**Icons**
-- Add icons to the FA library in `src/plugins/fontawesome.ts`
-- Use them in templates as `<FontAwesomeIcon icon="icon-name" />`
-
-**Storybook**
-- Stories live alongside their component inside the module folder
-- Global plugins (Pinia, i18n, FA, Tailwind) are registered in `.storybook/preview.ts`
-
-**Imports**
-- Use the `@/` alias for all absolute imports: `@/modules/home/home.vue`
-
-## Getting Started
-
-```bash
-# Install dependencies
-npm install
-
-# Start dev server
-npm run dev
-
-# Start Storybook
-npm run storybook
-```
-
-## Available Commands
-
-```bash
-npm run dev              # Dev server at http://localhost:5173
-npm run build            # Type-check + production build
-npm run preview          # Preview production build locally
-npm run storybook        # Storybook at http://localhost:6006
-npm run build-storybook  # Build static Storybook
-```
-
-## Adding a New Feature Module
-
-1. Create the folder `src/modules/<feature>/`
-2. Add the sub-folders: `api/`, `domain/`, `store/`
-3. Create `<feature>.routes.ts` and `<feature>.vue`
-4. Import and spread the routes in `src/router/index.ts`
-5. Add translation keys to every locale file under `src/i18n/locales/`

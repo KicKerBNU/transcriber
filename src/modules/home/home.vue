@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { useHomeStore } from './store/home.store'
 
 const { t } = useI18n()
-const homeStore = useHomeStore()
 
 const features = [
   { icon: 'bolt', key: 'vite' },
