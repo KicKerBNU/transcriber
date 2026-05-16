@@ -1,7 +1,7 @@
 <template>
-  <div class="flex min-h-screen flex-col bg-gray-950">
+  <div class="flex h-dvh max-h-dvh flex-col overflow-hidden bg-gray-950">
     <!-- Top bar -->
-    <div class="flex items-center justify-between border-b border-gray-800 px-6 py-4">
+    <div class="flex shrink-0 items-center justify-between border-b border-gray-800 px-6 py-4">
       <button
         class="cursor-pointer flex items-center gap-2 text-sm text-gray-400 transition hover:text-white"
         @click="router.push('/dashboard')"
@@ -41,7 +41,7 @@
     <!-- Pipeline diagnostic bar (agent mode, while recording) -->
     <div
       v-if="store.mode === 'agent' && store.status === 'recording'"
-      class="flex items-center gap-4 border-b border-gray-800 bg-gray-900/60 px-6 py-2 text-xs text-gray-500"
+      class="flex shrink-0 items-center gap-4 border-b border-gray-800 bg-gray-900/60 px-6 py-2 text-xs text-gray-500"
     >
       <span class="font-semibold uppercase tracking-widest text-gray-600">{{ t('session.diagMode') }}</span>
 
@@ -71,7 +71,7 @@
     <!-- Download banner -->
     <div
       v-if="showBanner"
-      class="flex items-start justify-between gap-4 border-b border-amber-500/30 bg-amber-500/10 px-6 py-4"
+      class="flex shrink-0 items-start justify-between gap-4 border-b border-amber-500/30 bg-amber-500/10 px-6 py-4"
     >
       <div class="flex-1">
         <p class="text-sm font-semibold text-amber-300">{{ t('session.agentBannerTitle') }}</p>
@@ -95,8 +95,8 @@
       </div>
     </div>
 
-    <!-- Transcript area -->
-    <div ref="transcriptEl" class="flex-1 overflow-y-auto px-4 py-6">
+    <!-- Transcript area (only this region scrolls; controls stay on screen) -->
+    <div ref="transcriptEl" class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6">
       <div class="mx-auto max-w-2xl space-y-3">
         <div v-if="store.transcript.length === 0" class="py-24 text-center text-gray-600">
           {{ t('session.hint') }}
@@ -128,7 +128,7 @@
     <!-- Summary panel -->
     <div
       v-if="store.summary"
-      class="border-t border-indigo-500/30 bg-indigo-600/10 px-6 py-4"
+      class="shrink-0 border-t border-indigo-500/30 bg-indigo-600/10 px-6 py-4"
     >
       <p class="mb-1 text-xs font-semibold uppercase tracking-widest text-indigo-400">
         {{ t('session.summary') }}
@@ -139,13 +139,15 @@
     <!-- Error banner -->
     <div
       v-if="store.error"
-      class="border-t border-red-500/30 bg-red-500/10 px-6 py-3 text-sm text-red-400"
+      class="shrink-0 border-t border-red-500/30 bg-red-500/10 px-6 py-3 text-sm text-red-400"
     >
       {{ store.error }}
     </div>
 
-    <!-- Controls -->
-    <div class="border-t border-gray-800 px-6 py-5">
+    <!-- Controls: always visible at bottom of viewport -->
+    <div
+      class="shrink-0 border-t border-gray-800 bg-gray-950 px-6 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+    >
       <div class="mx-auto flex max-w-2xl items-center justify-center gap-4">
         <!-- Start -->
         <button

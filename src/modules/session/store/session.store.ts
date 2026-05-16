@@ -27,12 +27,37 @@ const WHISPER_NO_SPEECH_THRESHOLD = 0.8
 /** Ignore Whisper lang hints from tiny/noisy chunks and avoid overwriting after first solid detection */
 const WHISPER_MIN_CHARS_FOR_LANG = 12
 
+/** Limits OpenAI payload per reply; full transcript remains in-memory and Firestore */
+const MAX_STREAM_CONTEXT_LINES = 72
+const MAX_STREAM_CONTEXT_CHARS = 28_000
+
+/** Trim only the summarize API input — full transcript lines are still persisted */
+const MAX_SUMMARY_TRANSCRIPT_CHARS = 96_000
+
+const FALLBACK_SUMMARY =
+  'Summary could not be generated (AI service limit or error). Your full transcript was saved.'
+
 function formatLanguageForPrompt(code: string): string {
   try {
     return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
   } catch {
     return code
   }
+}
+
+/** Most recent finalized lines fitting a rough character budget (avoids context-length failures). */
+function tailForChatContext(lines: TranscriptLine[]): TranscriptLine[] {
+  const tail = lines.slice(-MAX_STREAM_CONTEXT_LINES)
+  let sum = 0
+  const acc: TranscriptLine[] = []
+  for (let i = tail.length - 1; i >= 0; i--) {
+    const line = tail[i]!
+    const add = line.text.length + 32
+    if (acc.length > 0 && sum + add > MAX_STREAM_CONTEXT_CHARS) break
+    sum += add
+    acc.unshift(line)
+  }
+  return acc
 }
 
 export const useSessionStore = defineStore('session', () => {
@@ -223,12 +248,14 @@ export const useSessionStore = defineStore('session', () => {
 
   // ── AI response ────────────────────────────────────────────────────────────
 
-  async function streamAiResponse(userText: string) {
+  async function streamAiResponse(_userText: string) {
+    void _userText // Latest user utterance is already the last finalized line in context
     const aiLine: TranscriptLine = { speaker: 'ai', text: '', timestamp: new Date(), isFinal: false }
     transcript.value.push(aiLine)
     const idx = transcript.value.length - 1
 
     try {
+      const contextLines = tailForChatContext(transcript.value.filter(l => l.isFinal))
       const stream = await openai.chat.completions.create({
         model: 'gpt-4o',
         stream: true,
@@ -238,16 +265,16 @@ export const useSessionStore = defineStore('session', () => {
             content: [
               'You are an active listening AI conversation partner.',
               'Respond thoughtfully and concisely. Keep responses under 3 sentences.',
+              'Only the tail of long conversations appears here — infer context from recent turns.',
               detectedLanguage.value
                 ? `You MUST respond in ${formatLanguageForPrompt(detectedLanguage.value)} — the same language being spoken.`
                 : 'Detect the language from the user message and respond in that exact same language.',
             ].join(' '),
           },
-          ...transcript.value.filter(l => l.isFinal).map(l => ({
+          ...contextLines.map(l => ({
             role: l.speaker === 'ai' ? ('assistant' as const) : ('user' as const),
             content: l.speaker !== 'user' && l.speaker !== 'ai' ? `[${l.speaker}] ${l.text}` : l.text,
           })),
-          { role: 'user', content: userText },
         ],
       })
 
@@ -280,11 +307,19 @@ export const useSessionStore = defineStore('session', () => {
     const finalLines = transcript.value.filter(l => l.isFinal)
     if (finalLines.length === 0) { status.value = 'idle'; return null }
 
-    try {
-      const transcriptText = finalLines
-        .map(l => `${l.speaker === 'ai' ? 'AI' : l.speaker}: ${l.text}`)
-        .join('\n')
+    const transcriptText = finalLines
+      .map(l => `${l.speaker === 'ai' ? 'AI' : l.speaker}: ${l.text}`)
+      .join('\n')
 
+    let textForSummarize = transcriptText
+    if (textForSummarize.length > MAX_SUMMARY_TRANSCRIPT_CHARS) {
+      textForSummarize =
+        '[Earlier messages omitted due to length. The transcript on file is complete. Summarize only what follows from the recent portion.]\n\n' +
+        transcriptText.slice(-MAX_SUMMARY_TRANSCRIPT_CHARS)
+    }
+
+    let summaryText = FALLBACK_SUMMARY
+    try {
       const langName = detectedLanguage.value ? formatLanguageForPrompt(detectedLanguage.value) : null
       const summarySystemParts = [
         'Summarize the following conversation in 2-4 sentences, capturing the key topics and outcomes.',
@@ -297,12 +332,21 @@ export const useSessionStore = defineStore('session', () => {
         model: 'gpt-4o',
         messages: [
           { role: 'system', content: summarySystemParts.join(' ') },
-          { role: 'user', content: transcriptText },
+          { role: 'user', content: textForSummarize },
         ],
       })
 
-      summary.value = res.choices[0].message.content ?? ''
-      const id = await saveConversation(userId, finalLines, summary.value)
+      const raw = (res.choices[0]?.message?.content ?? '').trim()
+      if (raw) summaryText = raw
+    } catch {
+      summaryText = FALLBACK_SUMMARY
+    }
+
+    summary.value = summaryText
+
+    try {
+      const id = await saveConversation(userId, finalLines, summaryText)
+      error.value = null
       status.value = 'done'
       return id
     } catch (e: unknown) {
